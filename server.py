@@ -78,10 +78,14 @@ def main(config_file, args):
         kwargs["ssl_context"] = context """
         # kwargs["request_handler"] = PeerCertWSGIRequestHandler
 
+    cert = "/etc/letsencrypt/live/snf-74864.ok-kno.grnetcloud.net/fullchain.pem"
+    key = "/etc/letsencrypt/live/snf-74864.ok-kno.grnetcloud.net/privkey.pem"
+
     app.run(
-        host="0.0.0.0",#web_conf["domain"],
+        host="snf-74864.ok-kno.grnetcloud.net",#web_conf["domain"],
         port=web_conf["port"],
         debug=web_conf["debug"],
+        ssl_context=(cert, key),
         **kwargs
     )
 
