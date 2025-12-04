@@ -78,6 +78,9 @@ def main(config_file, args):
         kwargs["ssl_context"] = context """
         # kwargs["request_handler"] = PeerCertWSGIRequestHandler
 
+    print("Routes:")
+    print(app.url_map)
+
     cert = "/etc/letsencrypt/live/snf-74864.ok-kno.grnetcloud.net/fullchain.pem"
     key = "/etc/letsencrypt/live/snf-74864.ok-kno.grnetcloud.net/privkey.pem"
 
