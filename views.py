@@ -251,6 +251,15 @@ def dynamic_registration(client_id, redirect_uri):
         current_app.server.get_endpoint("registration").process_request_authorization(
             client_id=client_id, redirect_uri=redirect_uri
         )
+        # Python's urlunsplit normalizes custom-scheme URIs like "openid4vp://"
+        # to "openid4vp:" (dropping the "//"). The authorization endpoint validates
+        # the incoming redirect_uri using split_uri(), so the registered value must
+        # use the same normalized form for the comparison to succeed.
+        from idpyoidc.util import split_uri as _split_uri
+        _context = current_app.server.get_context()
+        if client_id in _context.cdb:
+            _base, _query = _split_uri(redirect_uri)
+            _context.cdb[client_id]["redirect_uris"] = [(_base, _query or {})]
     except Exception as e:
         current_app.logger.error(
             f"Error during client registration/update in traditional flow: {e}"
@@ -397,8 +406,15 @@ def authorization():
 
         _response = json.loads(response.get_data(as_text=True))
 
+        if response.status_code != 200 or "error" in _response:
+            return auth_error_redirect(
+                authorization_args.get("redirect_uri"),
+                _response.get("error", "server_error"),
+                _response.get("error_description"),
+            )
+
         jws = _response.get("jws")
-        
+
 
         redirect_url = (
             current_app.authorization_redirect_url
@@ -486,10 +502,13 @@ def par_endpoint():
         current_app.logger.error(
             f"Error accessing pushed_authorization endpoint: {e}", exc_info=True
         )
-        abort(
-            500,
-            description="An internal server error occurred while processing the request.",
+        return jsonify({"error": "server_error", "error_description": str(e)}), 500
+
+    if response.status_code not in (200, 201):
+        current_app.logger.error(
+            f"pushed_authorization endpoint returned error: {response.status_code} {response.get_data(as_text=True)}"
         )
+        return make_response(response.get_data(), response.status_code, {"Content-Type": "application/json"})
 
     try:
         request_manager.add_request(
