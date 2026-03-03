@@ -439,6 +439,30 @@ def authorization():
         response_dict = args.get("response_args").to_dict()
         request_manager.update_code(session_id=session_id, code=response_dict["code"])
 
+        # Initialize credential issuer session so it exists when the wallet
+        # presents the credential request (bypasses auth_choice for headless flows)
+        try:
+            _ad = authorization_details
+            if isinstance(_ad, str):
+                try:
+                    _ad = json.loads(_ad)
+                except Exception:
+                    _ad = []
+            _ci_base = current_app.authorization_redirect_url.rsplit("/auth_choice", 1)[0]
+            requests.post(
+                f"{_ci_base}/oidc_session_init",
+                json={
+                    "session_id": session_id,
+                    "jws_token": jws,
+                    "scope": scope,
+                    "authorization_details": _ad or [],
+                },
+                verify=False,
+                timeout=5,
+            )
+        except Exception as _e:
+            current_app.logger.warning(f"oidc_session_init call failed: {_e}")
+
         if isinstance(args, ResponseMessage) and "error" in args:
             return make_response(args.to_json(), 400)
 
