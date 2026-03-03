@@ -415,27 +415,34 @@ def authorization():
 
         jws = _response.get("jws")
 
+        # Auto-authenticate using session_id as the username so that headless
+        # wallets receive the code redirect (openid4vp://?code=...) directly,
+        # instead of being sent to the auth_choice UI which they cannot interact with.
+        authn_method = current_app.server.get_context().authn_broker.get_method_by_id("user")
+        auth_args = authn_method.unpack_token(jws)
 
-        redirect_url = (
-            current_app.authorization_redirect_url
-            + "?token="
-            + jws
-            + "&session_id="
-            + session_id
+        authn_method.verify(username=session_id)
+
+        authz_request = AuthorizationRequest().from_urlencoded(auth_args["query"])
+        authz_endpoint = current_app.server.get_endpoint("authorization")
+
+        _auth_session_id = authz_endpoint.create_session(
+            authz_request,
+            session_id,
+            auth_args["authn_class_ref"],
+            auth_args["iat"],
+            authn_method,
         )
-        if scope:
-            redirect_url += "&scope=" + scope
 
-        if authorization_details:
-            encoded_auth_details = urllib.parse.quote(json.dumps(authorization_details))
-            redirect_url += "&authorization_details=" + encoded_auth_details
+        args = authz_endpoint.authz_part2(request=authz_request, session_id=_auth_session_id)
 
-        current_request = request_manager.get_request(session_id=session_id)
+        response_dict = args.get("response_args").to_dict()
+        request_manager.update_code(session_id=session_id, code=response_dict["code"])
 
-        if current_request is not None and getattr(current_request, "frontend_id", None):
-            redirect_url += "&frontend_id=" + current_request.frontend_id
-            
-        return redirect(redirect_url)
+        if isinstance(args, ResponseMessage) and "error" in args:
+            return make_response(args.to_json(), 400)
+
+        return do_response(authz_endpoint, authz_request, **args)
 
     except requests.exceptions.RequestException as e:
         current_app.logger.error(
