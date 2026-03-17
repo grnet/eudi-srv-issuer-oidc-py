@@ -205,7 +205,8 @@
                "kwargs":{
                   "client_authn_method":null,
                   "release":[
-                     "username"
+                     "username",
+                     "scope"
                   ]
                }
             },

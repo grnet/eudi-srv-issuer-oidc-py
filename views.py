@@ -251,6 +251,15 @@ def dynamic_registration(client_id, redirect_uri):
         current_app.server.get_endpoint("registration").process_request_authorization(
             client_id=client_id, redirect_uri=redirect_uri
         )
+        # Python's urlunsplit normalizes custom-scheme URIs like "openid4vp://"
+        # to "openid4vp:" (dropping the "//"). The authorization endpoint validates
+        # the incoming redirect_uri using split_uri(), so the registered value must
+        # use the same normalized form for the comparison to succeed.
+        from idpyoidc.util import split_uri as _split_uri
+        _context = current_app.server.get_context()
+        if client_id in _context.cdb:
+            _base, _query = _split_uri(redirect_uri)
+            _context.cdb[client_id]["redirect_uris"] = [(_base, _query or {})]
     except Exception as e:
         current_app.logger.error(
             f"Error during client registration/update in traditional flow: {e}"
@@ -397,29 +406,67 @@ def authorization():
 
         _response = json.loads(response.get_data(as_text=True))
 
+        if response.status_code != 200 or "error" in _response:
+            return auth_error_redirect(
+                authorization_args.get("redirect_uri"),
+                _response.get("error", "server_error"),
+                _response.get("error_description"),
+            )
+
         jws = _response.get("jws")
-        
 
-        redirect_url = (
-            current_app.authorization_redirect_url
-            + "?token="
-            + jws
-            + "&session_id="
-            + session_id
+        # Auto-authenticate using session_id as the username so that headless
+        # wallets receive the code redirect (openid4vp://?code=...) directly,
+        # instead of being sent to the auth_choice UI which they cannot interact with.
+        authn_method = current_app.server.get_context().authn_broker.get_method_by_id("user")
+        auth_args = authn_method.unpack_token(jws)
+
+        authn_method.verify(username=session_id)
+
+        authz_request = AuthorizationRequest().from_urlencoded(auth_args["query"])
+        authz_endpoint = current_app.server.get_endpoint("authorization")
+
+        _auth_session_id = authz_endpoint.create_session(
+            authz_request,
+            session_id,
+            auth_args["authn_class_ref"],
+            auth_args["iat"],
+            authn_method,
         )
-        if scope:
-            redirect_url += "&scope=" + scope
 
-        if authorization_details:
-            encoded_auth_details = urllib.parse.quote(json.dumps(authorization_details))
-            redirect_url += "&authorization_details=" + encoded_auth_details
+        args = authz_endpoint.authz_part2(request=authz_request, session_id=_auth_session_id)
 
-        current_request = request_manager.get_request(session_id=session_id)
+        response_dict = args.get("response_args").to_dict()
+        request_manager.update_code(session_id=session_id, code=response_dict["code"])
 
-        if current_request is not None and getattr(current_request, "frontend_id", None):
-            redirect_url += "&frontend_id=" + current_request.frontend_id
-            
-        return redirect(redirect_url)
+        # Initialize credential issuer session so it exists when the wallet
+        # presents the credential request (bypasses auth_choice for headless flows)
+        try:
+            _ad = authorization_details
+            if isinstance(_ad, str):
+                try:
+                    _ad = json.loads(_ad)
+                except Exception:
+                    _ad = []
+            _ci_base = current_app.authorization_redirect_url.rsplit("/auth_choice", 1)[0]
+            requests.post(
+                f"{_ci_base}/oidc_session_init",
+                json={
+                    "session_id": session_id,
+                    "jws_token": jws,
+                    "scope": scope,
+                    "authorization_details": _ad or [],
+                },
+                verify=False,
+                timeout=5,
+            )
+        except Exception as _e:
+            current_app.logger.warning(f"oidc_session_init call failed: {_e}")
+
+        if isinstance(args, ResponseMessage) and "error" in args:
+            return make_response(args.to_json(), 400)
+
+        return do_response(authz_endpoint, authz_request, **args)
 
     except requests.exceptions.RequestException as e:
         current_app.logger.error(
@@ -486,10 +533,13 @@ def par_endpoint():
         current_app.logger.error(
             f"Error accessing pushed_authorization endpoint: {e}", exc_info=True
         )
-        abort(
-            500,
-            description="An internal server error occurred while processing the request.",
+        return jsonify({"error": "server_error", "error_description": str(e)}), 500
+
+    if response.status_code not in (200, 201):
+        current_app.logger.error(
+            f"pushed_authorization endpoint returned error: {response.status_code} {response.get_data(as_text=True)}"
         )
+        return make_response(response.get_data(), response.status_code, {"Content-Type": "application/json"})
 
     try:
         request_manager.add_request(
