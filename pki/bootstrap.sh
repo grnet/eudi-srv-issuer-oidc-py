@@ -25,11 +25,12 @@ VOLUME="${PKI_VOLUME:-eudiw-pki}"
 DAYS_CA=3650
 DAYS_LEAF=825   # ~27 months; anything longer is rejected by modern clients
 
-# Service names must match the compose service names / network aliases, because
-# that is the hostname one container uses to dial another. localhost and
+# One leaf per service in the stack. The names must match the compose service
+# names / network aliases, because that is the hostname one container uses to
+# dial another. localhost and
 # 127.0.0.1 are included so the same certificate works from the host, the
 # browser, curl, and the wallet all arrive that way.
-SERVICES=(issuer oidc)
+SERVICES=(issuer oidc frontend)
 
 mkdir -p "$OUT"
 
