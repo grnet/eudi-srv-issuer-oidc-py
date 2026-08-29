@@ -205,3 +205,8 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Local development Docker stack (pki/make-ca.sh).
+# Generated CA, private keys and certificates, regenerate, never commit.
+pki/out/
+.env
