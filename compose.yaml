@@ -27,6 +27,10 @@ name: eudiw-oidc
 services:
 
   oidc:
+    # Fixed so the name does not change when this stack is run on its own
+    # versus merged into a larger project (compose otherwise derives it from
+    # the project name). Scripts and `docker exec` can rely on it.
+    container_name: eudiw-oidc
     build:
       context: .
       dockerfile: Dockerfile
@@ -63,13 +67,18 @@ services:
 
 volumes:
   eudiw-pki:
-    # Written by pki/bootstrap.sh, mounted read-only by both stacks.
-    # The issuer's compose.yaml declares it `external: true`.
+    # Created and filled by pki/bootstrap.sh (docker volume create), before any
+    # stack starts, so compose treats it as external here and in the issuer.
+    # Both mount it read-only.
+    external: true
     name: eudiw-pki
 
 networks:
   eudiw-dev:
-    # Created by this stack and joined by the issuer's. The explicit name keeps
-    # it stable, without it compose would prefix the project name and the
-    # issuer's `external` reference would not resolve.
+    # Shared with the issuer stack. The explicit name keeps it stable: without
+    # it compose would prefix the project name and the issuer's reference would
+    # not resolve.
+    #
+    # `docker compose up` creates it if missing, so running this stack first is
+    # all the ordering that is needed.
     name: eudiw-dev
