@@ -1,0 +1,28 @@
+## Build context exclusions.
+##
+## As with the issuer: keep the image small, and keep key material out of it.
+## certs/ holds committed test keys (cert.pem, key.pem, client.key), TLS
+## material is mounted at runtime instead, so none of it belongs in a layer.
+
+.git
+.gitignore
+.github
+
+**/__pycache__
+**/*.py[cod]
+*.egg-info
+.venv
+venv
+
+# Key material, mounted at runtime, never baked in.
+certs/
+*.pem
+*.key
+*.crt
+*.p12
+
+# Host-specific / local noise
+run.sh
+*.md
+.env
+.DS_Store

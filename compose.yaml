@@ -1,0 +1,84 @@
+# Local development: the OIDC authorization server.
+#
+#   ./pki/bootstrap.sh      # once, mints the shared CA
+#   docker compose up --build
+#
+# START THIS FIRST. The issuer stack joins the network this file creates, so
+# bringing it up before this one fails with "network eudiw-dev not found".
+#
+# The issuer needs to reach this service, and this service's URLs appear in the
+# issuer's published metadata, so both stacks share one user-defined network
+# (`eudiw-dev`) and one certificate authority. This file owns both; the issuer's
+# compose.yaml declares them `external: true`.
+#
+# Two hostnames reach this service, on purpose:
+#   https://oidc:5601        from the issuer container, over the shared network
+#   https://localhost:5601   from the wallet/browser, via the published port
+# The dev CA issues this service's certificate with a SAN for both, so neither
+# path needs verification turned off.
+#
+# Note on the filename: upstream's docker-compose.yml (published ghcr.io image)
+# is still here and untouched. Compose prefers compose.yaml, so a bare
+# `docker compose up` runs this one. To run upstream's:
+#   docker compose -f docker-compose.yml up
+
+name: eudiw-oidc
+
+services:
+
+  oidc:
+    # Fixed so the name does not change when this stack is run on its own
+    # versus merged into a larger project (compose otherwise derives it from
+    # the project name). Scripts and `docker exec` can rely on it.
+    container_name: eudiw-oidc
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: eudiw-oidc:dev
+    # docker/config.json is the repo's config.json with the TLS paths and
+    # hostname changed. See DOCKER.md for the exact diff.
+    # See README.docker.md for the exact diff.
+    command: ["python3", "server.py", "/config.json"]
+    ports:
+      - "${OIDC_PORT:-5601}:5601"
+    environment:
+      # Trust the dev CA for outbound HTTPS instead of disabling verification.
+      REQUESTS_CA_BUNDLE: /etc/eudiw/tls/ca-bundle.pem
+      SSL_CERT_FILE: /etc/eudiw/tls/ca-bundle.pem
+      PYTHONUNBUFFERED: "1"
+    volumes:
+      # TLS material from the shared dev CA, via a named volume so the issuer
+      # repo can mount the same certificates without knowing where this repo
+      # sits on disk. Populated by pki/bootstrap.sh.
+      - eudiw-pki:/etc/eudiw/tls:ro
+      # Mounted rather than baked in, so editing config is a restart not a
+      # rebuild. The image carries a copy, so the stack still runs without it.
+      - ./docker/config.json:/config.json:ro
+      # views.py serves this file straight off disk (send_from_directory over
+      # the app root), so its URLs are beyond the reach of config. The container
+      # copy names localhost instead of the deployment host.
+      - ./docker/openid-configuration.json:/openid-configuration.json:ro
+    networks:
+      eudiw-dev:
+        # Fixed alias so the issuer always reaches this service at the same name,
+        # independent of compose project naming.
+        aliases: [oidc]
+    restart: unless-stopped
+
+volumes:
+  eudiw-pki:
+    # Created and filled by pki/bootstrap.sh (docker volume create), before any
+    # stack starts, so compose treats it as external here and in the issuer.
+    # Both mount it read-only.
+    external: true
+    name: eudiw-pki
+
+networks:
+  eudiw-dev:
+    # Shared with the issuer stack. The explicit name keeps it stable: without
+    # it compose would prefix the project name and the issuer's reference would
+    # not resolve.
+    #
+    # `docker compose up` creates it if missing, so running this stack first is
+    # all the ordering that is needed.
+    name: eudiw-dev

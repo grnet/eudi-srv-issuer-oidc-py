@@ -81,11 +81,18 @@ def main(config_file, args):
     print("Routes:")
     print(app.url_map)
 
-    cert = "/etc/letsencrypt/live/snf-74864.ok-kno.grnetcloud.net/fullchain.pem"
-    key = "/etc/letsencrypt/live/snf-74864.ok-kno.grnetcloud.net/privkey.pem"
+    # The bind address and the TLS material used to be hardcoded to one
+    # deployment's hostname and its Let's Encrypt paths, so the server could
+    # only run on that VM. Both now come from the config file.
+    cert = web_conf["server_cert"]
+    key = web_conf["server_key"]
 
+    # `domain` is what the server advertises, not where it listens: idpyoidc
+    # interpolates it into `issuer` and the endpoint URLs, so it has to carry a
+    # port when the service is not on 443. `host` is the address to bind, and is
+    # optional: without it the server binds `domain` as it did before.
     app.run(
-        host="snf-74864.ok-kno.grnetcloud.net",#web_conf["domain"],
+        host=web_conf.get("host", web_conf["domain"]),
         port=web_conf["port"],
         debug=web_conf["debug"],
         ssl_context=(cert, key),
