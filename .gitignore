@@ -206,7 +206,7 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 
-# Local development Docker stack (pki/make-ca.sh).
-# Generated CA, private keys and certificates, regenerate, never commit.
+# Local development Docker stack (pki/bootstrap.sh).
+# Generated CA, private keys and certificates. Regenerate, never commit.
 pki/out/
 .env
