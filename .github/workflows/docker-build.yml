@@ -1,0 +1,125 @@
+# Build the container image and push it to GHCR.
+#
+# Build only. Deployment is a separate, manually triggered workflow, so a push
+# never changes what is running on a server.
+#
+# Upstream's pipeline.yml does the same job but triggers on `dev` and `preprod`,
+# branches this fork does not have, so it has never run here. Rather than edit a
+# tracked upstream file and inherit a conflict on every rebase, this workflow
+# sits alongside it and triggers on the branches this fork actually uses.
+#
+# Images land at ghcr.io/grnet/eudi-srv-issuer-oidc-py, tagged by branch, by
+# commit SHA, and as `latest` on the default branch. The SHA tag is the one
+# worth deploying: it names exactly one build.
+
+name: Docker build
+
+on:
+  push:
+    branches:
+      - deploy-okeanos-v6
+      - 'feat/**'
+    paths-ignore:
+      - '**.md'
+      - '.gitignore'
+  pull_request:
+    paths-ignore:
+      - '**.md'
+      - '.gitignore'
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build:
+    name: Build and push
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3.10.0
+
+      # Pull requests from forks cannot read secrets, and pushing an image from
+      # unreviewed code is not something to do by default. Those builds run to
+      # prove the Dockerfile still works, and stop short of publishing.
+      - name: Log in to GitHub Container Registry
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3.4.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5.7.0
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=sha,format=long
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6.15.0
+        with:
+          context: .
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: false
+
+      # The image is only useful if it starts. The container needs TLS material
+      # and the container config, exactly as compose supplies them, so the smoke
+      # test mints a throwaway certificate and mounts the same files. Running
+      # the image bare would fail on the certs/ paths its committed config names,
+      # which .dockerignore deliberately keeps out of the image.
+      - name: Smoke test the image
+        if: github.event_name != 'pull_request'
+        run: |
+          set -euo pipefail
+          IMAGE=$(printf '%s' "${{ steps.meta.outputs.tags }}" | head -1)
+          echo "Testing $IMAGE"
+
+          mkdir -p /tmp/tls
+          openssl req -x509 -newkey rsa:2048 -sha256 -days 1 -nodes \
+            -keyout /tmp/tls/oidc.key -out /tmp/tls/oidc.crt \
+            -subj "/CN=localhost" -addext "subjectAltName=DNS:localhost" 2>/dev/null
+          cp /tmp/tls/oidc.crt /tmp/tls/ca-bundle.pem
+          chmod 644 /tmp/tls/*
+
+          docker run -d --name smoke \
+            -v /tmp/tls:/etc/eudiw/tls:ro \
+            -v "$PWD/docker/config.json:/config.json:ro" \
+            -v "$PWD/docker/openid-configuration.json:/openid-configuration.json:ro" \
+            "$IMAGE" python3 server.py /config.json
+
+          for i in $(seq 1 30); do
+            if docker exec smoke python3 -c "
+          import urllib.request, ssl
+          ctx = ssl._create_unverified_context()
+          urllib.request.urlopen('https://localhost:5601/.well-known/openid-configuration', context=ctx, timeout=5)
+          " 2>/dev/null; then
+              echo "Service answered after ${i}s"
+              docker rm -f smoke >/dev/null
+              exit 0
+            fi
+            sleep 1
+          done
+
+          echo "::error::the service did not answer within 30s"
+          docker logs smoke
+          docker rm -f smoke >/dev/null
+          exit 1
