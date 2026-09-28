@@ -41,8 +41,8 @@ is committed here.
 
 The issuer reaches this service two ways:
 
-    base_url      https://demo.eudiw.grnet.gr/auth   browser, through the proxy
-    internal_url  http://oidc:5000                    issuer to here, in-network
+    base_url      https://demo.eudiw.grnet.gr/issuer/oidc   browser, through the proxy
+    internal_url  http://oidc:5000                           issuer to here, in-network
 
 Plain http internally is not a shortcut. `server.py` has its `ssl_context`
 commented out, so this service speaks http and nginx-proxy terminates TLS.
