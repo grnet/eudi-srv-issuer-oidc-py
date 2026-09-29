@@ -55,4 +55,4 @@ on 5000, reading its config from
 `/etc/issuer_config/authorization_config.json`.
 
 To deploy a specific build, pass its tag as `oidc_image_tag` to the issuer's
-Deploy workflow, or as the second argument to its `deploy.sh`.
+Deploy workflow.
