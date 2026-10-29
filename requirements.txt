@@ -1,3 +1,3 @@
 flask==3.1.3
-git+https://github.com/grnet/idpy-oidc.git@feat/lote-wallet-providers
+git+https://github.com/grnet/idpy-oidc.git@f8003d7d9179a3dcfa3f2276dd7dc3cfb9006368
 pyjwt==2.12.1
