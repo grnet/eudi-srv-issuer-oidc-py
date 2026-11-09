@@ -75,7 +75,10 @@ longer stripped, the internal URL carries the path too
 `docker-build.yml` publishes on push to `grnet` and `feat/**`. The image is
 upstream's `Dockerfile` unchanged: multi-stage on `python:3.13-slim`, as the
 unprivileged user 10001, listening on 5000. idpy-oidc comes from GRNET's fork,
-`grnet/idpy-oidc@grnet` (`requirements.txt`), for the wallet providers list.
+`grnet/idpy-oidc`, for the wallet providers list. `requirements.txt` pins a
+commit of its `grnet` branch, not the branch: the build caches the pip layer
+by the file's content, so an unchanged `@grnet` line keeps the idpy-oidc of an
+earlier build. Move the pin to take a new idpy-oidc.
 
 To deploy a specific build, pass its tag as `oidc_image_tag` to the issuer's
 Deploy workflow, or as the second argument of its local `deploy.sh`.
