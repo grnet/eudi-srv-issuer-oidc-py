@@ -12,7 +12,9 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-2. Edit file `config.json` and set hostname/IP for the server.
+2. Edit file `config.yaml` and set hostname/IP for the server. (Before
+   upstream 0.10.0 this was `config.json`.) The Docker image ships no
+   configuration: mount one at `/etc/issuer_config/authorization_config.yaml`.
 
 ## Use
 
